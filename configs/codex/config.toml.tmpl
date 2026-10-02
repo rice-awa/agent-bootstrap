@@ -17,7 +17,7 @@ sandbox_mode = "workspace-write"
 web_search = "live"
 
 [model_providers.custom]
-name = "{{PROVIDER_NAME|aihub}}"
+name = "{{PROVIDER_NAME|custom}}"
 # "responses" 要求供应商支持 /responses 接口；若只有 /chat/completions，
 # 改成 "chat"。verify 阶段会自动探测并提示。
 wire_api = "responses"

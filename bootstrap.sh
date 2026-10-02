@@ -24,16 +24,14 @@ if [[ -n "$_self" && -f "$_self" ]]; then
 fi
 
 if [[ -z "$BOOTSTRAP_DIR" || ! -f "$BOOTSTRAP_DIR/lib/ui.sh" ]]; then
-  # 管道执行：拿不到本地文件，克隆一份再交给自己
-  _repo="${AGENT_BOOTSTRAP_REPO:-}"
-  if [[ -z "$_repo" ]]; then
-    _early_die "检测到管道执行，但没有本地文件，且未设置 AGENT_BOOTSTRAP_REPO。
+  # 管道执行：stdin 是脚本自身，拿不到同目录的 lib/ 和 agents/，
+  # 所以克隆一份到临时目录再交给自己跑。
+  # 默认指向公开仓库，这样 `curl ... | bash` 一行就能用；fork 之后
+  # 用环境变量覆盖成自己的地址即可。
+  : "${AGENT_BOOTSTRAP_REPO:=https://github.com/rice-awa/agent-bootstrap.git}"
+  _repo="$AGENT_BOOTSTRAP_REPO"
 
-请任选其一：
-  1) 克隆仓库后本地运行：  ./bootstrap.sh --all
-  2) 指定仓库地址：       AGENT_BOOTSTRAP_REPO=<git-url> curl -fsSL <raw-url> | bash"
-  fi
-  command -v git >/dev/null 2>&1 || _early_die "缺少 git"
+  command -v git >/dev/null 2>&1 || _early_die "管道执行需要 git 来拉取脚本本体"
   _tmp="$(mktemp -d)"
   git clone --depth 1 "$_repo" "$_tmp/agent-bootstrap" >/dev/null 2>&1 \
     || _early_die "克隆失败: $_repo"

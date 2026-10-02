@@ -6,33 +6,30 @@
 
 ## 怎么用
 
+云上直接一行，不需要任何凭证：
+
 ```bash
-git clone git@github.com:rice-awa/agent-bootstrap.git
+curl -fsSL https://raw.githubusercontent.com/rice-awa/agent-bootstrap/main/bootstrap.sh | bash -s -- --all
+```
+
+它会把仓库先 clone 到临时目录再交给自己跑。为什么要多这一步：管道执行时 stdin 是脚本本身，同目录的 `lib/` 和 `agents/` 拿不到，所以得有个完整的副本。
+
+也可以先 clone 再用：
+
+```bash
+git clone https://github.com/rice-awa/agent-bootstrap.git
 cd agent-bootstrap
 ./bootstrap.sh --all
 ```
 
-### 云上直接跑（私有仓需要凭证）
-
-仓库是私有的，云上的机器要能读到它 —— **拉 raw 文件和 clone 两处都需要凭证**，缺一个都会失败。
-
-用 PAT（建议用细粒度 token，只给这一个仓的读权限）：
+fork 之后想用自己的仓库，把地址覆盖掉：
 
 ```bash
-TOKEN=<你的 token>
-AGENT_BOOTSTRAP_REPO="https://${TOKEN}@github.com/rice-awa/agent-bootstrap.git" \
-curl -fsSL "https://${TOKEN}@raw.githubusercontent.com/rice-awa/agent-bootstrap/main/bootstrap.sh" \
+YOUR=你的用户名
+AGENT_BOOTSTRAP_REPO="https://github.com/${YOUR}/agent-bootstrap.git" \
+  curl -fsSL "https://raw.githubusercontent.com/${YOUR}/agent-bootstrap/main/bootstrap.sh" \
   | bash -s -- --all
 ```
-
-云上已经配好 SSH key 的话更简单 —— 管道那步拿不到私有 raw，直接 clone 再跑：
-
-```bash
-git clone git@github.com:rice-awa/agent-bootstrap.git
-./agent-bootstrap/bootstrap.sh --all
-```
-
-> 提醒：`TOKEN=xxx` 这样写在命令行上会进 shell 历史。用完 `history -d` 清一下，或者先用 `read -s TOKEN` 从标准输入读。
 
 ## 参数
 

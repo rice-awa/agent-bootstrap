@@ -81,7 +81,7 @@ _collect_provider_vars() {
 
   ask CODEX_BASE_URL "Codex base_url" ""
   ask CODEX_MODEL "默认模型" "gpt-6-astra"
-  ask CODEX_PROVIDER_NAME "provider 显示名" "aihub"
+  ask CODEX_PROVIDER_NAME "provider 显示名" "custom"
   ask OPENAI_API_KEY "OpenAI API Key（不回显）" "" --secret
 
   bag_set BASE_URL       "$CODEX_BASE_URL"
