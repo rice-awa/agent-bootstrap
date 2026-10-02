@@ -68,7 +68,7 @@ _collect_provider_vars() {
     use_custom=1
   elif (( NON_INTERACTIVE )) || ! have_tty; then
     use_custom=0
-  elif confirm "为 Codex 配置自定义 model provider（中转 / 网关）?" y; then
+  elif confirm "配置自定义 model provider（中转/网关）?" y; then
     use_custom=1
   fi
 
@@ -79,10 +79,10 @@ _collect_provider_vars() {
     return 0
   fi
 
-  ask CODEX_BASE_URL "Codex base_url" ""
+  ask CODEX_BASE_URL "API 端点 (base_url)" ""
   ask CODEX_MODEL "默认模型" "gpt-6-astra"
-  ask CODEX_PROVIDER_NAME "provider 显示名" "custom"
-  ask OPENAI_API_KEY "OpenAI API Key（不回显）" "" --secret
+  ask CODEX_PROVIDER_NAME "provider 名称" "custom"
+  ask OPENAI_API_KEY "OpenAI API Key" "" --secret
 
   bag_set BASE_URL       "$CODEX_BASE_URL"
   bag_set CODEX_MODEL    "$CODEX_MODEL"

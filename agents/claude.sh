@@ -88,7 +88,7 @@ _configure_auth() {
     use_custom=1
   elif (( NON_INTERACTIVE )) || ! have_tty; then
     use_custom=0
-  elif confirm "为 Claude Code 配置自定义 API 端点（中转 / 网关）?" n; then
+  elif confirm "配置自定义 API 端点（中转/网关）?" n; then
     use_custom=1
   fi
 
@@ -99,8 +99,8 @@ _configure_auth() {
     return 0
   fi
 
-  ask ANTHROPIC_BASE_URL "ANTHROPIC_BASE_URL" ""
-  ask ANTHROPIC_AUTH_TOKEN "网关 API Key（不回显）" "" --secret
+  ask ANTHROPIC_BASE_URL "API 端点 (base URL)" ""
+  ask ANTHROPIC_AUTH_TOKEN "网关 API Key" "" --secret
 
   # 注意：这里用 AUTH_TOKEN 而不是 API_KEY。网关认证走 Authorization: Bearer，
   # 对应 ANTHROPIC_AUTH_TOKEN；ANTHROPIC_API_KEY 走 x-api-key，是直连官方

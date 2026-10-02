@@ -37,6 +37,7 @@ AGENT_BOOTSTRAP_REPO="https://github.com/${YOUR}/agent-bootstrap.git" \
 |---|---|
 | `-a, --agent LIST` | 只处理指定的，逗号分隔，比如 `claude,codex` |
 | `--all` | 全都处理 |
+| `-i, --install-only` | 只装 CLI，跳过配置与 Key 收集 |
 | `-y, --non-interactive` | 不提问，只用环境变量。CI 里用这个 |
 | `-f, --force` | 覆盖你手改过的配置文件（覆盖前会备份） |
 | `-n, --dry-run` | 只打印要干什么，不真写 |
@@ -49,6 +50,8 @@ AGENT_BOOTSTRAP_REPO="https://github.com/${YOUR}/agent-bootstrap.git" \
 1. **装工具**：`claude`、`codex`，已经有了就跳过
 2. **铺配置**：把 `configs/` 里的东西复制到你的 home 目录
 3. **收集 API Key**：问你或者从环境变量拿，然后写进配置文件
+
+加 `--install-only` 就只干第 1 件，配置和 Key 都不碰。
 
 ## API Key 从哪来
 

@@ -68,6 +68,7 @@ AGENTS_ARG=""
 NON_INTERACTIVE=0
 FORCE=0
 DRY_RUN=0
+INSTALL_ONLY=0  # 仅安装 CLI，跳过配置与凭据收集
 VERIFY=0        # 联网探测默认关闭：见 usage 里 --verify 的说明
 
 # ── 加载 lib ───────────────────────────────────────────────────
@@ -91,6 +92,7 @@ agent-bootstrap — 云端一键拉起 coding agent 配置
 选项:
   -a, --agent LIST       指定 agent，逗号分隔（claude,codex）
       --all              处理所有已知 agent
+  -i, --install-only     只安装 CLI，跳过配置与凭据收集
   -y, --non-interactive  非交互：只用环境变量，缺失即失败，绝不等待输入
   -f, --force            覆盖已存在的配置文件（会先备份）
   -n, --dry-run          只打印将要执行的动作，不落盘
@@ -101,15 +103,11 @@ agent-bootstrap — 云端一键拉起 coding agent 配置
   -h, --help             显示本帮助
   -V, --version          显示版本
 
-凭据解析顺序（三级）:
-  1. 环境变量 / 平台 secret 已存在  → 直接采用，不打扰
-  2. 有可交互终端                  → 向导询问（密钥不回显）
-  3. 否则                          → 有默认值用默认值，没有则报错退出
+凭据来源（优先级从高到低）:
+  环境变量 / 平台 secret → 交互终端向导（密钥不回显）→ 默认值 → 报错退出
 
-为什么不默认探测:
-  探测只换来"端点通不通"这一点信息，代价却不对称 —— 请求头与真实
-  客户端不一致时，部分中转会判成异常流量并停用渠道，连带影响所有
-  客户端。所以默认零网络请求，需要时再加 --verify。
+默认不探测: 探测收益低、风险高（请求头与真实客户端不一致时，中转可能停用
+  渠道），所以默认零网络请求，需要时加 --verify。
 
 落盘位置:
   ~/.claude/settings.json      由 configs/claude/settings.json.tmpl 渲染（含密钥，600）
@@ -132,6 +130,7 @@ while (( $# )); do
     -n|--dry-run)       DRY_RUN=1; shift ;;
     --verify)           VERIFY=1; shift ;;
     --skip-verify)      VERIFY=0; shift ;;
+    -i|--install-only)  INSTALL_ONLY=1; shift ;;
     -l|--list)          printf '%s\n' "${KNOWN_AGENTS[@]}"; exit 0 ;;
     -h|--help)          usage; exit 0 ;;
     -V|--version)       printf 'agent-bootstrap %s\n' "$BOOTSTRAP_VERSION"; exit 0 ;;
@@ -170,7 +169,7 @@ if [[ -z "$AGENTS_ARG" ]]; then
   if (( NON_INTERACTIVE )) || ! have_tty; then
     die "未指定 agent。非交互模式下请用 --agent 或 --all"
   fi
-  ask AGENTS_ARG "要处理哪些 agent（逗号分隔，或 all）" "all"
+  ask AGENTS_ARG "处理哪些 agent（claude, codex，或 all）" "all"
 fi
 
 _resolve_agents "$AGENTS_ARG"
@@ -190,13 +189,22 @@ process_agent() {
     return 1
   fi
 
+  local -a __steps=(agent_install agent_configure agent_verify)
+  (( INSTALL_ONLY )) && __steps=(agent_install)
+
   if (
     AGENT_NAME="$__name"
     # shellcheck disable=SC1090
     source "$__mod"
-    agent_install && agent_configure && agent_verify
+    for __fn in "${__steps[@]}"; do
+      "$__fn" || exit 1
+    done
   ); then
-    ok "${__name} 处理完成"
+    if (( INSTALL_ONLY )); then
+      ok "${__name} 安装完成"
+    else
+      ok "${__name} 处理完成"
+    fi
     return 0
   fi
 
@@ -206,8 +214,11 @@ process_agent() {
 
 info "agent-bootstrap $BOOTSTRAP_VERSION —— 目标: ${AGENT_LIST[*]}"
 (( DRY_RUN )) && warn "dry-run 模式：不会真正落盘"
+(( INSTALL_ONLY )) && warn "仅安装模式：跳过配置与凭据收集"
 
-ensure_env_sourced
+if (( ! INSTALL_ONLY )); then
+  ensure_env_sourced
+fi
 
 FAILED=()
 for _agent in "${AGENT_LIST[@]}"; do
@@ -217,8 +228,12 @@ done
 # ── 汇总 ───────────────────────────────────────────────────────
 printf '\n' >&2
 if (( ${#FAILED[@]} == 0 )); then
-  ok "全部完成。"
-  dim "新开一个 shell，或执行： source ~/.bashrc"
+  if (( INSTALL_ONLY )); then
+    ok "全部安装完成。"
+  else
+    ok "全部完成。"
+    dim "新开一个 shell，或执行： source ~/.bashrc"
+  fi
 else
   err "以下 agent 失败: ${FAILED[*]}"
   exit 1

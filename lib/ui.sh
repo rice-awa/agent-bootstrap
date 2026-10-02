@@ -38,21 +38,22 @@ ask() {
   local __cur="${!__var:-}"
 
   if [[ -n "$__cur" ]]; then
-    ok "$__var 已由环境提供，跳过询问"
+    ok "已提供: $__prompt"
     return 0
   fi
 
   if (( NON_INTERACTIVE )) || ! have_tty; then
     if [[ -n "$__default" ]]; then
       printf -v "$__var" '%s' "$__default"
-      warn "$__var 未提供，使用默认值：$__default"
+      warn "未提供 $__prompt，使用默认值：$__default"
       return 0
     fi
-    die "$__var 未提供，且当前无法交互（--non-interactive 或没有可用的 /dev/tty）"
+    die "缺少 $__prompt，且当前无法交互（--non-interactive 或没有可用的 /dev/tty）"
   fi
 
   local __in="" __p="$__prompt"
   [[ -n "$__default" ]] && __p="$__p [$__default]"
+  [[ "$__secret" == "--secret" ]] && __p="$__p (输入不回显)"
 
   while :; do
     if [[ "$__secret" == "--secret" ]]; then
