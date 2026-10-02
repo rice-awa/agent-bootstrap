@@ -129,6 +129,34 @@ _configure_models() {
   ok "所有模型层级统一指向 $__alias（来自 ANTHROPIC_MODEL_ALIAS）"
 }
 
+# 交互登录的凭证落在哪，各平台说法不一（~/.claude/.credentials.json 还是
+# ~/.claude.json）。与其猜字段名，不如两个位置都看一遍如实报告 ——
+# 报告的目的是避免「配置里的 key」和「残留的登录态」互相打架时无从排查。
+_report_login_state() {
+  local __json="$HOME/.claude.json"
+  local __found=0
+
+  if [[ -f "$CLAUDE_HOME/.credentials.json" ]]; then
+    warn "存在 $CLAUDE_HOME/.credentials.json（OAuth 凭证）"
+    dim "若已改用 settings.json 的 env 认证，可删掉它以免混淆"
+    __found=1
+  fi
+
+  # 只匹配键名，不读值。不同版本字段名不同，用宽松模式覆盖 oauthAccount /
+  # oauthTokens / accessToken 这类命名，避免写死一个会漂移的键。
+  if [[ -f "$__json" ]] && \
+     grep -qE '"(oauth|credentials|accessToken|refreshToken)[A-Za-z]*"[[:space:]]*:' \
+       "$__json" 2>/dev/null; then
+    warn "$__json 里存有登录凭证"
+    dim "与 settings.json 的 env 认证并存不冲突，但登录态约 7 天过期"
+    __found=1
+  fi
+
+  if (( ! __found )); then
+    dim "未发现交互登录态（走 settings.json 的 env 认证即可，无需登录）"
+  fi
+}
+
 agent_verify() {
   if have claude; then
     ok "claude: $(claude --version 2>/dev/null | head -n1 || echo '版本未知')"
@@ -149,13 +177,10 @@ agent_verify() {
     info "未部署 $CLAUDE_HOME/settings.json"
   fi
 
-  if [[ -f "$CLAUDE_HOME/.credentials.json" ]]; then
-    warn "存在 $CLAUDE_HOME/.credentials.json（OAuth 凭证）。"
-    dim "若已改用 settings.json 的 env 认证，可删掉它以免混淆。"
-  fi
+  _report_login_state
 
-  if (( SKIP_VERIFY )); then
-    info "已跳过连通性探测（--skip-verify）"
+  if (( ! VERIFY )); then
+    dim "未做连通性探测（默认关闭；需要时加 --verify）"
     return 0
   fi
 
@@ -165,6 +190,17 @@ agent_verify() {
   fi
 
   _probe_anthropic
+}
+
+# 探测用的 User-Agent。不少中转按 UA 做渠道健康策略：UA 不以 claude-cli/
+# 开头会被判成异常流量并**停用渠道**，连累所有客户端（包括正在用的会话）。
+# 真实客户端的 UA 形如 "claude-cli/2.1.287 (external, cli)"；版本号无所谓，
+# 但能取到本地版本就用本地的，免得硬编码后随版本漂移。
+_claude_probe_ua() {
+  local __v
+  __v="$(claude --version 2>/dev/null | head -n1 | awk '{print $1}')"
+  [[ "$__v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || __v="2.1.161"
+  printf 'claude-cli/%s (external, cli)' "$__v"
 }
 
 _probe_anthropic() {
@@ -181,10 +217,11 @@ _probe_anthropic() {
   fi
 
   local model="${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}"
-  local body url code
+  local ua body url
+  ua="$(_claude_probe_ua)"
   body="$(printf '{"model":"%s","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}' "$model")"
 
-  info "探测端点 $base（会发一次最小请求）"
+  info "探测端点 $base（会发一次最小请求，UA: $ua）"
 
   # base_url 带不带 /v1 因供应商而异，两种候选都试再下结论。
   # 注意：若 base 已以 /v1 结尾就不能再拼 /v1 —— 会变成 /v1/v1。
@@ -196,23 +233,30 @@ _probe_anthropic() {
   fi
 
   for url in "${candidates[@]}"; do
-    code="$(probe_http "$url" "$auth" "$body")"
-    case "$code" in
+    probe_parse "$(probe_http "$url" "$auth" "$body" "$ua")"
+
+    if probe_ok; then
+      ok "$url → HTTP $PROBE_CODE（响应体 $PROBE_KIND），配置可用"
+      return 0
+    fi
+
+    case "$PROBE_CODE" in
       200)
-        ok "$url → HTTP 200，配置可用"
-        return 0 ;;
+        # 网关 / WAF 对未知路径常回 200 + HTML 首页。把它当成功是最坏的结果：
+        # 用户以为配好了，真实客户端拿到的却是页面，直接报 malformed response。
+        warn "$url → HTTP 200，但响应体是 ${PROBE_KIND}，不是 API 响应"
+        dim "网关/WAF 常对未知路径回 200 + 页面；真实客户端会报 malformed response" ;;
       400|422)
-        ok "$url → HTTP $code（认证已通过，仅是请求体/模型名问题）"
-        return 0 ;;
+        dim "$url → HTTP $PROBE_CODE 但响应体是 ${PROBE_KIND}，疑似网关拦截" ;;
       401|403)
-        warn "$url → HTTP $code 认证失败，请检查 API Key"
+        warn "$url → HTTP $PROBE_CODE 认证失败，请检查 API Key"
         return 0 ;;
       404|405)
-        dim "$url → HTTP $code" ;;
+        dim "$url → HTTP $PROBE_CODE" ;;
       000)
         warn "$url → 无法连接（DNS / TLS / 网络策略）" ;;
       *)
-        dim "$url → HTTP $code" ;;
+        dim "$url → HTTP $PROBE_CODE（响应体 $PROBE_KIND）" ;;
     esac
   done
 

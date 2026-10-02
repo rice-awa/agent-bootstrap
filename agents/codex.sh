@@ -118,8 +118,8 @@ agent_verify() {
     warn "未找到 $CODEX_HOME/auth.json —— 自定义 provider 下密钥就存在这里"
   fi
 
-  if (( SKIP_VERIFY )); then
-    info "已跳过连通性探测（--skip-verify）"
+  if (( ! VERIFY )); then
+    dim "未做连通性探测（默认关闭；需要时加 --verify）"
     return 0
   fi
 
@@ -131,55 +131,81 @@ agent_verify() {
   _probe_codex
 }
 
+# 探测用的 UA 可覆盖（CODEX_PROBE_UA）。部分网关同样按 UA 判异常流量，
+# 但 OpenAI 风格端点到底要什么 UA 还没测出来，所以默认沿用 curl 自带的，
+# 需要时由用户显式指定。
 _probe_codex() {
   local base="${CODEX_BASE_URL:-https://api.openai.com/v1}"
   base="${base%/}"
   local key="$OPENAI_API_KEY"
   local model="${CODEX_MODEL:-gpt-6-astra}"
   local auth="Authorization: Bearer $key"
-  local code
+  local ua="${CODEX_PROBE_UA:-}"
 
   info "探测端点 $base"
 
   # wire_api = "responses" 是硬约束：要求供应商支持 /responses。
   # 很多中转只有 /chat/completions，这时必须把 wire_api 改成 "chat"。
-  code="$(probe_http "$base/responses" "$auth" \
-    "$(printf '{"model":"%s","input":"ping","max_output_tokens":16}' "$model")")"
+  probe_parse "$(probe_http "$base/responses" "$auth" \
+    "$(printf '{"model":"%s","input":"ping","max_output_tokens":16}' "$model")" "$ua")"
 
-  case "$code" in
-    200) ok "/responses → HTTP 200，wire_api = \"responses\" 正确" ; return 0 ;;
-    400|422) ok "/responses → HTTP $code（认证已通过，仅是请求体/模型名问题）" ; return 0 ;;
-    401|403) warn "/responses → HTTP $code 认证失败，检查 OPENAI_API_KEY" ; return 0 ;;
-    000) warn "无法连接 $base/responses（DNS / TLS / 网络策略）" ; return 0 ;;
-    404|405) warn "/responses → HTTP $code，该路径不存在" ;;
-    *) warn "/responses → HTTP $code" ;;
+  if probe_ok; then
+    ok "/responses → HTTP $PROBE_CODE（响应体 $PROBE_KIND），wire_api = \"responses\" 正确"
+    return 0
+  fi
+
+  case "$PROBE_CODE" in
+    200)
+      warn "/responses → HTTP 200，但响应体是 ${PROBE_KIND}，不是 API 响应"
+      dim "网关/WAF 常对未知路径回 200 + 页面，别把它当成 /responses 可用" ;;
+    401|403)
+      warn "/responses → HTTP $PROBE_CODE 认证失败，检查 OPENAI_API_KEY"
+      return 0 ;;
+    000)
+      warn "无法连接 $base/responses（DNS / TLS / 网络策略）"
+      return 0 ;;
+    5*)
+      # 5xx = 端点存在、上游不可用。这不是"路径不存在" —— 让用户去改
+      # base_url 只会把人带偏，还会白白丢掉一个本来正确的配置。
+      warn "/responses → HTTP $PROBE_CODE：端点存在，但上游不可用（5xx）"
+      dim "⇒ 多半是上游临时故障或限流，别动 base_url，稍后重试"
+      return 0 ;;
+    404|405)
+      warn "/responses → HTTP $PROBE_CODE，该路径不存在" ;;
+    *)
+      warn "/responses → HTTP $PROBE_CODE（响应体 $PROBE_KIND）" ;;
   esac
 
   # 路径不通时，直接验证「补上 /v1 是否就好了」，给出确定结论而不是让用户猜
   if [[ "$base" != */v1 ]]; then
     dim "回退探测 $base/v1/responses …"
-    code="$(probe_http "$base/v1/responses" "$auth" \
-      "$(printf '{"model":"%s","input":"ping","max_output_tokens":16}' "$model")")"
-    case "$code" in
-      200|400|422)
-        warn "$base/v1/responses 可用（HTTP $code）"
-        dim "⇒ 把 config.toml 的 base_url 改成 \"$base/v1\""
-        return 0 ;;
-    esac
+    probe_parse "$(probe_http "$base/v1/responses" "$auth" \
+      "$(printf '{"model":"%s","input":"ping","max_output_tokens":16}' "$model")" "$ua")"
+    if probe_ok; then
+      warn "$base/v1/responses 可用（HTTP $PROBE_CODE）"
+      dim "⇒ 把 config.toml 的 base_url 改成 \"$base/v1\""
+      return 0
+    fi
   fi
 
   dim "回退探测 /chat/completions …"
-  code="$(probe_http "$base/chat/completions" "$auth" \
-    "$(printf '{"model":"%s","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' "$model")")"
+  probe_parse "$(probe_http "$base/chat/completions" "$auth" \
+    "$(printf '{"model":"%s","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' "$model")" "$ua")"
 
-  case "$code" in
-    200|400|422)
-      warn "但 /chat/completions 可用（HTTP $code）"
-      dim "⇒ 请把 $CODEX_HOME/config.toml 里的 wire_api 改成 \"chat\"" ;;
+  if probe_ok; then
+    warn "但 /chat/completions 可用（HTTP $PROBE_CODE）"
+    dim "⇒ 请把 $CODEX_HOME/config.toml 里的 wire_api 改成 \"chat\""
+    return 0
+  fi
+
+  case "$PROBE_CODE" in
     404|405|000)
-      warn "/chat/completions 也不可用（HTTP $code）"
+      warn "/chat/completions 也不可用（HTTP $PROBE_CODE）"
       dim "⇒ 核对 base_url 是否正确（当前: $base）" ;;
+    5*)
+      warn "/chat/completions → HTTP $PROBE_CODE：端点存在，上游不可用（5xx）"
+      dim "⇒ 别改 base_url，稍后重试" ;;
     *)
-      warn "/chat/completions → HTTP $code" ;;
+      warn "/chat/completions → HTTP $PROBE_CODE（响应体 $PROBE_KIND）" ;;
   esac
 }

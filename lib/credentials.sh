@@ -2,10 +2,13 @@
 #
 # lib/credentials.sh — 凭据落盘与 shell 集成
 #
-# 设计要点：配置文件里**不放密钥**。
-#   · configs/ 里的模板只含 base_url 这类非敏感值，可以直接提交进版本库
-#   · 真正的密钥写进 ~/.config/agent-env.d/<agent>.sh（chmod 600），由 .bashrc 加载
-# 每个 agent 一个文件，互不覆盖；重跑某个 agent 不会动到别的 agent 的密钥。
+# 提交进版本库的只有 configs/ 里的**模板**（占位符，没有真实值）。
+# 密钥的落盘位置由各工具自己决定，本文件只提供通用原语：
+#   · Claude Code  → ~/.claude/settings.json 的 env 字段（chmod 600）
+#   · Codex        → ~/.codex/auth.json（chmod 600）
+#   · 只能从环境变量读密钥的工具 → ~/.config/agent-env.d/<agent>.sh，
+#     由 ~/.bashrc 加载；每个 agent 一个文件，互不覆盖
+# 含密钥的文件一律 chmod 600，它们的 .last-deployed 副本同样处理。
 
 [[ -n "${_AB_CRED_LOADED:-}" ]] && return 0
 _AB_CRED_LOADED=1

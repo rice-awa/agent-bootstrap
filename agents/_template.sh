@@ -7,12 +7,13 @@
 #   agent_verify     校验。发现问题用 warn 提示，不要 die
 #
 # 可直接使用的全局变量 / 函数：
-#   BOOTSTRAP_DIR  FORCE  DRY_RUN  NON_INTERACTIVE  SKIP_VERIFY
+#   BOOTSTRAP_DIR  FORCE  DRY_RUN  NON_INTERACTIVE  VERIFY
 #   have need die info ok warn err dim
 #   ask confirm have_tty
 #   bag_set render_to
 #   install_rendered install_copy validate_json backup_file
 #   write_env_file ensure_path_entry ensure_node probe_http chmod_secret
+#   probe_parse probe_ok
 
 AGENT_NAME="${AGENT_NAME:-mytool}"
 
@@ -51,9 +52,17 @@ agent_verify() {
     warn "mytool 不在 PATH 中"
   fi
 
-  if (( SKIP_VERIFY )); then
-    info "已跳过连通性探测（--skip-verify）"
+  if (( ! VERIFY )); then
+    dim "未做连通性探测（默认关闭；需要时加 --verify）"
     return 0
   fi
+
+  # 探测要显式开启，且必须带上真实客户端的 User-Agent —— 不少中转会把
+  # UA 不对的请求判成异常流量并停用渠道。另外拿到结果后别只看状态码：
+  # 用 probe_parse 拆出状态码与响应体类型，再用 probe_ok 判定，
+  # 否则会把「200 + HTML 首页」这种网关拦截误报成成功。
+  # 示例：
+  #   probe_parse "$(probe_http "$url" "$auth" "$body" "$ua")"
+  #   if probe_ok; then ok "$url 可用"; fi
   :
 }

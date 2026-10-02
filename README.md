@@ -12,7 +12,7 @@
 curl -fsSL https://raw.githubusercontent.com/rice-awa/agent-bootstrap/main/bootstrap.sh | bash -s -- --all
 ```
 
-它会把仓库先 clone 到临时目录再交给自己跑。为什么要多这一步：管道执行时 stdin 是脚本本身，同目录的 `lib/` 和 `agents/` 拿不到，所以得有个完整的副本。
+它会先把仓库打成 tar 包下到临时目录（走 codeload 这个 CDN，不通再退回 `git clone`）再交给自己跑。为什么要多这一步：管道执行时 stdin 是脚本本身，同目录的 `lib/` 和 `agents/` 拿不到，所以得有个完整的副本。优先走 tar 包是因为不少网络策略放行 GitHub 的 CDN 却拦 `github.com` 本体，而 `git clone` 打的正是后者。
 
 也可以先 clone 再用：
 
@@ -40,7 +40,8 @@ AGENT_BOOTSTRAP_REPO="https://github.com/${YOUR}/agent-bootstrap.git" \
 | `-y, --non-interactive` | 不提问，只用环境变量。CI 里用这个 |
 | `-f, --force` | 覆盖你手改过的配置文件（覆盖前会备份） |
 | `-n, --dry-run` | 只打印要干什么，不真写 |
-| `--skip-verify` | 装完不测端点通不通 |
+| `--verify` | 装完发一次探测请求验证连通与认证。**默认不发**，见下节 |
+| `--skip-verify` | 兼容旧用法，等同默认行为（不探测） |
 | `-l, --list` | 看看支持哪些 agent |
 
 ## 它干三件事
@@ -127,15 +128,24 @@ AGENT_BOOTSTRAP_REPO="https://github.com/${YOUR}/agent-bootstrap.git" \
 
 默认值刻意写在**模板文件里**而不是 shell 代码里 —— 这样打开模板就知道哪些是默认值、哪些要你填。
 
-## ⚠️ 还没在真机验证过的地方
+## 连通性探测（默认关闭）
 
-这几条没实机跑过（抓官方文档时被网络策略拦了）。脚本已经把它们做成了**自动探测 + 具体建议**，第一次跑就会告诉你哪里不对：
+装完**默认一个请求都不发**。探测只换来"端点通不通"这一点信息，代价却不对称：请求头跟真实客户端不一致时，部分中转（带渠道健康策略的）会把探测判成异常流量并**停用渠道**，连累所有正在用的客户端。想看通不通，显式加 `--verify`。
 
-1. **`wire_api = "responses"`** —— 要求你的中转支持 `/responses` 接口。很多中转只有 `/chat/completions`，那就要改成 `wire_api = "chat"`。脚本会自己回退探测，然后告诉你改哪个字段。
+开了 `--verify` 之后，探测按下面三条来，避免给出错误结论：
 
-2. **`base_url` 要不要带 `/v1`** —— Codex 是往 `{base_url}/responses` 发，Claude 是往 `{base_url}/v1/messages` 发，规则不一样。脚本会把两种路径都试一遍再下结论。
+- **User-Agent 按真实客户端来** —— `claude-cli/<本地版本> (external, cli)`。不少中转要求 UA 以 `claude-cli/` 开头，否则停用渠道。Codex 侧的要求没测出来，默认沿用 curl 自带的 UA，可用 `CODEX_PROBE_UA` 覆盖。
+- **不只看状态码，还看响应体** —— 网关/WAF 对未知路径常回 `200 + HTML 首页`。把它当成功是最坏的结果：你以为配好了，真实客户端却报 `malformed response`。所以 200 必须响应体是 JSON 才算通过；判断类型按内容而不是 `Content-Type`（实测有网关用 `text/plain` 返回合法 JSON）。
+- **区分"路径不存在"和"上游挂了"** —— 5xx 说明端点存在、上游不可用，提示你稍后重试，而不是让你去改 `base_url`。
 
-另外，Linux 下 Claude 的登录凭证到底在 `~/.claude/.credentials.json` 还是 `~/.claude.json` 里，两种说法我都见过。第一次登录后 `ls -la ~/.claude*` 看一眼就知道了。
+## 探测能替你答的两个问题
+
+这两条以前靠猜，现在 `--verify` 会直接给结论。没跑过真实中转和真实 Codex 端点（抓官方文档时被网络策略拦了），但每条分支都用本地 mock 服务器验过（JSON 200 / HTML 200 / 400 / 401 / 5xx / 404 / 连不上）：
+
+1. **`wire_api = "responses"` 还是 `"chat"`** —— 先试 `/responses`，不通再试 `/chat/completions`，然后告诉你改 `config.toml` 里的哪个字段。很多中转只有 `/chat/completions`。
+2. **`base_url` 要不要带 `/v1`** —— Claude 侧 `/v1/messages` 和 `/messages` 都试；Codex 侧会在原 `base_url` 上补 `/v1` 再试一次，通了就告诉你怎么改。
+
+至于 Claude 的登录凭证到底在 `~/.claude/.credentials.json` 还是 `~/.claude.json` —— 脚本不猜，两个位置都探一遍再如实报告。都没有，就说明你在用 `settings.json` 的 env 认证（本仓库推荐的方式），不需要登录。
 
 ## 依赖
 

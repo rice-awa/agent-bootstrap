@@ -68,7 +68,7 @@ AGENTS_ARG=""
 NON_INTERACTIVE=0
 FORCE=0
 DRY_RUN=0
-SKIP_VERIFY=0
+VERIFY=0        # 联网探测默认关闭：见 usage 里 --verify 的说明
 
 # ── 加载 lib ───────────────────────────────────────────────────
 # shellcheck source=lib/ui.sh
@@ -94,7 +94,9 @@ agent-bootstrap — 云端一键拉起 coding agent 配置
   -y, --non-interactive  非交互：只用环境变量，缺失即失败，绝不等待输入
   -f, --force            覆盖已存在的配置文件（会先备份）
   -n, --dry-run          只打印将要执行的动作，不落盘
-      --skip-verify      跳过安装后的连通性探测
+      --verify           安装后向端点发一次探测请求，验证连通与认证
+                         （默认不发任何请求，见下）
+      --skip-verify      兼容旧用法，等同默认行为（不探测）
   -l, --list             列出已知 agent
   -h, --help             显示本帮助
   -V, --version          显示版本
@@ -104,10 +106,17 @@ agent-bootstrap — 云端一键拉起 coding agent 配置
   2. 有可交互终端                  → 向导询问（密钥不回显）
   3. 否则                          → 有默认值用默认值，没有则报错退出
 
+为什么不默认探测:
+  探测只换来"端点通不通"这一点信息，代价却不对称 —— 请求头与真实
+  客户端不一致时，部分中转会判成异常流量并停用渠道，连带影响所有
+  客户端。所以默认零网络请求，需要时再加 --verify。
+
 落盘位置:
-  ~/.config/agent-env.d/*.sh   密钥（chmod 600，由 ~/.bashrc 加载）
-  ~/.claude/settings.json      软链到本仓库 configs/claude/
-  ~/.codex/config.toml         由 configs/codex/config.toml.tmpl 渲染
+  ~/.claude/settings.json      由 configs/claude/settings.json.tmpl 渲染（含密钥，600）
+  ~/.claude/CLAUDE.md          从 configs/claude/CLAUDE.md 复制
+  ~/.codex/config.toml         由 configs/codex/config.toml.tmpl 渲染（不含密钥）
+  ~/.codex/auth.json           由 configs/codex/auth.json.tmpl 渲染（含密钥，600）
+  ~/.config/agent-env.d/00-path.sh  往 PATH 里加 ~/.local/bin
 EOF
 }
 
@@ -121,7 +130,8 @@ while (( $# )); do
     -y|--non-interactive) NON_INTERACTIVE=1; shift ;;
     -f|--force)         FORCE=1; shift ;;
     -n|--dry-run)       DRY_RUN=1; shift ;;
-    --skip-verify)      SKIP_VERIFY=1; shift ;;
+    --verify)           VERIFY=1; shift ;;
+    --skip-verify)      VERIFY=0; shift ;;
     -l|--list)          printf '%s\n' "${KNOWN_AGENTS[@]}"; exit 0 ;;
     -h|--help)          usage; exit 0 ;;
     -V|--version)       printf 'agent-bootstrap %s\n' "$BOOTSTRAP_VERSION"; exit 0 ;;
