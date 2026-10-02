@@ -25,17 +25,42 @@ fi
 
 if [[ -z "$BOOTSTRAP_DIR" || ! -f "$BOOTSTRAP_DIR/lib/ui.sh" ]]; then
   # 管道执行：stdin 是脚本自身，拿不到同目录的 lib/ 和 agents/，
-  # 所以克隆一份到临时目录再交给自己跑。
-  # 默认指向公开仓库，这样 `curl ... | bash` 一行就能用；fork 之后
-  # 用环境变量覆盖成自己的地址即可。
+  # 所以得先弄一份完整副本到临时目录，再交给自己跑。
+  #
+  # 两条路径，优先不走 git：不少网络策略放行 GitHub 的 CDN
+  # （raw / codeload）却拦 github.com 本体，而 git clone 打的正是
+  # github.com —— 一旦被拦，整条一行命令就卡死。tar 包走的是 CDN，
+  # 顺带也不需要机器上装 git。
   : "${AGENT_BOOTSTRAP_REPO:=https://github.com/rice-awa/agent-bootstrap.git}"
-  _repo="$AGENT_BOOTSTRAP_REPO"
+  : "${AGENT_BOOTSTRAP_REF:=main}"
 
-  command -v git >/dev/null 2>&1 || _early_die "管道执行需要 git 来拉取脚本本体"
-  _tmp="$(mktemp -d)"
-  git clone --depth 1 "$_repo" "$_tmp/agent-bootstrap" >/dev/null 2>&1 \
-    || _early_die "克隆失败: $_repo"
-  exec bash "$_tmp/agent-bootstrap/bootstrap.sh" "$@"
+  _fetched=0
+
+  if [[ "$AGENT_BOOTSTRAP_REPO" =~ ^https?://github\.com/([^/]+)/([^/]+)$ ]] \
+     && command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
+    _owner="${BASH_REMATCH[1]}"
+    _name="${BASH_REMATCH[2]%.git}"
+    _tmp="$(mktemp -d)"
+    if curl -fsSL --max-time 60 \
+         "https://codeload.github.com/${_owner}/${_name}/tar.gz/refs/heads/${AGENT_BOOTSTRAP_REF}" \
+         | tar -xz -C "$_tmp" --strip-components=1 2>/dev/null \
+       && [[ -f "$_tmp/bootstrap.sh" ]]; then
+      _fetched=1
+    fi
+  fi
+
+  if (( ! _fetched )); then
+    command -v git >/dev/null 2>&1 || _early_die "取不到脚本本体：tar 包下载失败，且机器上没有 git。
+
+请手动下载仓库后本地运行：
+  ./bootstrap.sh --all"
+    _tmp="$(mktemp -d)"
+    git clone --depth 1 --branch "$AGENT_BOOTSTRAP_REF" "$AGENT_BOOTSTRAP_REPO" "$_tmp" >&2 \
+      || _early_die "克隆失败: $AGENT_BOOTSTRAP_REPO"
+    [[ -f "$_tmp/bootstrap.sh" ]] || _early_die "取到的内容里没有 bootstrap.sh，地址对吗？"
+  fi
+
+  exec bash "$_tmp/bootstrap.sh" "$@"
 fi
 
 # ── 选项（必须在加载 lib 之前初始化：lib 里用 `set -u` 引用它们）──
