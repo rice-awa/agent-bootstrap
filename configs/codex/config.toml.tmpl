@@ -1,0 +1,26 @@
+# generated-by: agent-bootstrap
+#
+# 本文件由 configs/codex/config.toml.tmpl 渲染而来，重跑 bootstrap.sh 会按
+# 模板重新生成。持久化修改请改模板，不要改这个文件（改了会在下次重跑时被备份覆盖）。
+#
+# {{VAR|默认值}} 中，默认值写在模板里；变量由向导或环境变量提供。
+
+model_provider = "custom"
+model = "{{CODEX_MODEL|gpt-6-astra}}"
+model_reasoning_effort = "medium"
+service_tier = "default"
+
+# 该 provider 多为中转，通常不支持服务端存储 response，关掉更稳
+disable_response_storage = true
+
+sandbox_mode = "workspace-write"
+web_search = "live"
+
+[model_providers.custom]
+name = "{{PROVIDER_NAME|aihub}}"
+# "responses" 要求供应商支持 /responses 接口；若只有 /chat/completions，
+# 改成 "chat"。verify 阶段会自动探测并提示。
+wire_api = "responses"
+# 走 OpenAI 式认证 ⇒ 密钥读取自 OPENAI_API_KEY 环境变量
+requires_openai_auth = true
+base_url = "{{BASE_URL|https://api.openai.com/v1}}"

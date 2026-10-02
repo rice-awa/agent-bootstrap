@@ -1,0 +1,14 @@
+# 部署产物与密钥 —— 绝不能进仓
+auth.json
+settings.json
+*.last-deployed
+*.bak.*
+
+# 本地环境
+.env
+.venv/
+node_modules/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
